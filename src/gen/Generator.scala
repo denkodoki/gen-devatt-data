@@ -21,14 +21,34 @@ case class Grid(size: Int) {
     ( for (sqSize <- 1 to (size - 1); point <- Grid(size-sqSize).points) yield Square(point, sqSize) ).toList
 }
 
-object Generator {
+trait RandomLists {
 
-  type States = List[Boolean]
+  val numOfStates: Int
+
+  import org.scalacheck._
+  import Gen._
+
+  private lazy val randomBooleanGen = oneOf(true, false)
+  private lazy val booleanListsGen = containerOfN[List,Boolean](numOfStates,randomBooleanGen)
+  def createBooleanList = booleanListsGen.sample.get
+  def randomBoolean = randomBooleanGen.sample.get
+}
+
+trait Parameters {
+
+  val minMarkedNodes = 6
+  val maxMarkedNodes =  10
 
   val numOfVisualTargets = 25
   val numOfAudioTargets = 25
   val numOfNonTargets = 25
   val numOfTrials = numOfVisualTargets + numOfAudioTargets + numOfNonTargets
+
+}
+
+object Generator extends RandomLists with Parameters {
+
+  type States = List[Boolean]
 
   val GRID = Grid(4)
   val numOfStates = GRID.size * GRID.size
@@ -68,13 +88,12 @@ object Generator {
     def getTrials: List[Trial] = trials.toList
   }
 
-  def randomBoolean: Boolean = Math.random() > 0.5
+  def validStates(states: States): Boolean = {
+    val nm: Int = states.count(b => b)
+    nm >= minMarkedNodes && nm <= maxMarkedNodes
+  }
 
-  def createStates: States = ( for(i <- 1 to numOfStates) yield randomBoolean ).toList
-
-  def validStates(states: States): Boolean = { val s = states.map(if (_) 1 else 0).sum; s >= 6 && s <= 10}
-
-  def createValidStates: States = {val states = createStates; if (validStates(states)) states else createValidStates}
+  def createValidStates: States = {val states = createBooleanList ; if (validStates(states)) states else createValidStates}
 
   def createExperiment: Experiment = {
     val maxTries = 10000
@@ -90,20 +109,21 @@ object Generator {
   }
   
   class ExperimentData {
-    val nodes = new Array[mutable.MutableList[Boolean]](numOfStates)
-    val visualTargets = new mutable.MutableList[Boolean]
-    val audioTargets = new mutable.MutableList[Boolean]
-    val noneTargets = new mutable.MutableList[Boolean]
-    for (i <- 0 to (nodes.size - 1)) nodes(i) = new mutable.MutableList[Boolean]
+    val nodes = new Array[mutable.MutableList[Int]](numOfStates)
+    val targets = new mutable.MutableList[Int]
+    val visualTargets = new mutable.MutableList[Int]
+    val audioTargets = new mutable.MutableList[Int]
+    val noneTargets = new mutable.MutableList[Int]
+    for (i <- 0 to (nodes.size - 1)) nodes(i) = new mutable.MutableList[Int]
 
     override def toString: String = {
-      val colSep = ";"
+      val colSep = ","
       val newLine = "\n"
       val sb = new mutable.StringBuilder()
       def indexToPoint(i: Int) = Point(((i-1)/GRID.size)+1, if(i%GRID.size == 0) GRID.size else i%GRID.size)
       def processNodes() {
         var index: Int = 0
-        def processNode(node: mutable.MutableList[Boolean]) {
+        def processNode(node: mutable.Iterable[Int]) {
           index += 1
           val point = indexToPoint(index)
           sb += 'N'
@@ -115,13 +135,14 @@ object Generator {
         }
         nodes.foreach(processNode)
       }
-      def processList(label: String, list: mutable.MutableList[Boolean]) {
+      def processList(label: String, list: mutable.Iterable[Int]) {
         sb ++= label
         sb ++= colSep
         sb ++= list.mkString(colSep)
         sb ++= newLine
       }
       processNodes()
+      processList("TRS", targets)
       processList("VTS", visualTargets)
       processList("ATS", audioTargets)
       processList("NTS", noneTargets)
@@ -131,12 +152,15 @@ object Generator {
 
   def experimentToData(experiment: Experiment): ExperimentData  = {
     val data = new ExperimentData
-    def transpose(states: States): Unit = for (i <- 0 to (numOfStates - 1)) {data.nodes(i) += states(i)}
+    def stateToInt(b: Boolean) = if (b) 2 else 1
+    def booleanToInt(b: Boolean) = if (b) 1 else 0
+    def transpose(states: States): Unit = for (i <- 0 to (numOfStates - 1)) {data.nodes(i) += stateToInt(states(i))}
     def add(trial: Trial): Unit = {
       transpose(trial.grid.states)
-      data.visualTargets += trial.visualTarget
-      data.audioTargets += trial.audioTarget
-      data.noneTargets += (! trial.target)
+      data.targets += booleanToInt(trial.target)
+      data.visualTargets += booleanToInt(trial.visualTarget)
+      data.audioTargets += booleanToInt(trial.audioTarget)
+      data.noneTargets += booleanToInt(! trial.target)
     }
     experiment.getTrials.foreach(add)
     data
