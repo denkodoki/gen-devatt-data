@@ -53,14 +53,15 @@ object Generator extends RandomLists with Parameters {
   val GRID = Grid(4)
   val numOfStates = GRID.size * GRID.size
 
-  def index(y: Int, x: Int): Int = (y - 1) * GRID.size + (x - 1)
 
   case class MarkedGrid(states: States)  {
     require(states.size == numOfStates)
-    def markedPoint(p: Point): Boolean = states(index(p.y, p.x))
-    def markedSquare(s: Square): Boolean = s.points.forall(markedPoint)
+    private def index(y: Int, x: Int): Int = (y - 1) * GRID.size + (x - 1)
+    private def markedPoint(p: Point): Boolean = states(index(p.y, p.x))
+    private def markedSquare(s: Square): Boolean = s.points.forall(markedPoint)
     val markedSquares: List[Square] = GRID.squares.filter(markedSquare)
-    val visualTarget: Boolean = markedSquares.size > 0
+    val visualTarget: Boolean = markedSquares.size == 1
+    val valid = markedSquares.size < 2
   }
 
   case class Trial(grid: MarkedGrid, audioTarget: Boolean) {
@@ -88,19 +89,18 @@ object Generator extends RandomLists with Parameters {
     def getTrials: List[Trial] = trials.toList
   }
 
-  def validStates(states: States): Boolean = {
-    val nm: Int = states.count(b => b)
-    nm >= minMarkedNodes && nm <= maxMarkedNodes
-  }
-
-  def createValidStates: States = {val states = createBooleanList ; if (validStates(states)) states else createValidStates}
-
   def createExperiment: Experiment = {
+    def validStates(states: States): Boolean = {
+      val nm: Int = states.count(b => b)
+      nm >= minMarkedNodes && nm <= maxMarkedNodes
+    }
+    def createValidStates: States = {val states = createBooleanList ; if (validStates(states)) states else createValidStates}
+    def createValidMarkedGrid: MarkedGrid = {val mg = MarkedGrid(createValidStates); if (mg.valid) mg else createValidMarkedGrid}
     val maxTries = 10000
     val experiment = new Experiment
     var i = 1
     while (!experiment.complete && i < maxTries) {
-      val mg = MarkedGrid(createValidStates)
+      val mg = createValidMarkedGrid
       val at = if (mg.visualTarget) false else randomBoolean
       experiment.add(Trial(mg, at))
       i += 1
